@@ -29,7 +29,7 @@ class Person {
   final String name;
   final int age;
 
-  Person({
+  const Person({
     required this.name,
     required this.age,
   });
@@ -93,15 +93,17 @@ class PersonBloc extends Bloc<LoadAction, FetchResults?> {
 
       if (cache.containsKey(url)) {
         final cachedPerson = cache[url];
-        final result =
-            FetchResults(persons: cachedPerson!, isRetrievedFromCache: true);
+        final result = FetchResults(persons: cachedPerson!, isRetrievedFromCache: true);
         print(result);
         emit(result);
-      } else {
-        final loader = event.loader;
+      } 
+        else 
+           {final loader = event.loader;
         final loadedPerson = await loader(url);
         final result =
             FetchResults(persons: loadedPerson, isRetrievedFromCache: false);
+        final value = <String, Iterable<Person>>{url: loadedPerson};
+        cache.addAll(value);
         print(result);
         emit(result);
       }
