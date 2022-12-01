@@ -1,124 +1,256 @@
-import 'dart:convert';
-import 'dart:developer';
-
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 
 void main() {
-  runApp(MaterialApp(
-    title: 'Home page',
-    darkTheme: ThemeData.dark(),
-    themeMode: ThemeMode.dark,
-    home: BlocProvider(
-      create: (context) => PersonBloc(),
-      child: const HomePage(),
+  runApp(
+    MaterialApp(
+      title: 'Home page',
+      darkTheme: ThemeData.dark(),
+      themeMode: ThemeMode.dark,
+      home: BlocProvider(
+        create: (context) => AppBloc(
+          loginProtocol: LoginApi(),
+          notesProtocol: NotesApi(),
+        ),
+        child: const HomePage(),
+      ),
     ),
-  ));
+  );
 }
 
-const person1 = "http://127.0.0.1:5500/person2.json";
-const person2 = "http://127.0.0.1:5500/person2.json";
+class LoginHandle {
+  final String token;
 
-extension Subscript<T> on Iterable<T> {
-  T? operator [](int index) => length > index ? elementAt(index) : null;
-}
-
-class Person {
-  final String name;
-  final int age;
-
-  const Person({
-    required this.name,
-    required this.age,
+  LoginHandle({
+    required this.token,
   });
-
-  Person.fromJson(Map<String, dynamic> json)
-      : name = json['name'] as String,
-        age = json['age'] as int;
+  LoginHandle.foo() : token = 'real token';
 
   @override
-  String toString() => 'Person (name : $name, age: $age)';
+  bool operator ==(covariant LoginHandle other) => other.token == token;
+
+  @override
+  int get hashCode => token.hashCode;
 }
 
-@immutable
-abstract class LoadAction {}
-
-class PersonLoaderAction implements LoadAction {
-  final String url;
-  final PersonLoader loader;
-
-  PersonLoaderAction({required this.url, required this.loader});
+abstract class LoginProtocol {
+  LoginProtocol();
+  Future<LoginHandle?> login({required String email, required String password});
 }
 
-class FetchResults {
-  final Iterable<Person> persons;
-  final bool isRetrievedFromCache;
-
-  FetchResults({
-    required this.persons,
-    required this.isRetrievedFromCache,
-  });
-
+class LoginApi extends LoginProtocol {
   @override
-  bool operator ==(covariant FetchResults other) =>
-      persons.isEqualToIgnoringOrdering(other.persons) &&
-      isRetrievedFromCache == other.isRetrievedFromCache;
-
-  @override
-  int get hashCode => Object.hashAll([persons, isRetrievedFromCache]);
-
-  @override
-  String toString() => 'Fetch results(person: $persons , '
-      'isRetrievedFromCache:$isRetrievedFromCache';
-}
-
-typedef PersonLoader = Future<Iterable<Person>> Function(String url);
-
-Future<Iterable<Person>> getPerson(String url) => HttpClient()
-    .getUrl(Uri.parse(url))
-    .then((req) => req.close())
-    .then((resp) => resp.transform(utf8.decoder).join())
-    .then((str) => jsonDecode(str) as List<dynamic>)
-    .then(
-      (list) => list.map((e) => Person.fromJson(e)),
+  Future<LoginHandle?> login({
+    required String email,
+    required String password,
+  }) {
+    return Future.delayed(
+      const Duration(seconds: 2),
+      () => email == 'jo@email.com' && password == 'asdfjkl'
+          ? LoginHandle.foo()
+          : null,
     );
+  }
+}
 
-class PersonBloc extends Bloc<LoadAction, FetchResults?> {
-  Map<String, Iterable<Person>> cache = {};
-  PersonBloc() : super(null) {
-    on<PersonLoaderAction>((event, emit) async {
-      final url = event.url;
+enum Errors {
+  invalidHandle,
+}
 
-      if (cache.containsKey(url)) {
-        final cachedPerson = cache[url];
-        final result = FetchResults(persons: cachedPerson!, isRetrievedFromCache: true);
-        print(result);
-        emit(result);
-      } 
-        else 
-           {final loader = event.loader;
-        final loadedPerson = await loader(url);
-        final result =
-            FetchResults(persons: loadedPerson, isRetrievedFromCache: false);
-        final value = <String, Iterable<Person>>{url: loadedPerson};
-        cache.addAll(value);
-        print(result);
-        emit(result);
-      }
+abstract class NotesProtocol {
+  NotesProtocol();
+
+  Future<Iterable<Note>?> notes({required LoginHandle? handle});
+}
+
+class Note {
+  final String title;
+
+  Note({
+    required this.title,
+  });
+}
+
+final mockedNotes = Iterable.generate(
+  4,
+  ((index) => Note(title: 'notes ${index + 1},)')),
+);
+
+class NotesApi extends NotesProtocol {
+  // const NotesApi._sharedInstance();
+  //  static const _shared = NotesApi._sharedInstance();
+  // factory NotesApi() => _shared;
+  @override
+  Future<Iterable<Note>?> notes({required LoginHandle? handle}) {
+    final acceptedHandle = LoginHandle.foo();
+
+    return Future.delayed(
+      const Duration(seconds: 2),
+      (() {
+        return acceptedHandle == handle ? mockedNotes : null;
+      }),
+    );
+  }
+}
+
+abstract class AppAction {}
+
+class LoginAction implements AppAction {
+  final String email;
+  final String password;
+
+  LoginAction({
+    required this.email,
+    required this.password,
+  });
+}
+
+class NotesAction implements AppAction {
+  NotesAction();
+}
+
+class AppState {
+  final LoginHandle? handle;
+  final Errors? errors;
+  final bool loading;
+  final Iterable<Note>? fetchedNotes;
+
+  AppState({
+    required this.handle,
+    required this.errors,
+    required this.loading,
+    required this.fetchedNotes,
+  });
+
+  AppState.empty()
+      : errors = null,
+        fetchedNotes = null,
+        handle = null,
+        loading = false;
+}
+
+class AppBloc extends Bloc<AppAction, AppState> {
+  final LoginProtocol loginProtocol;
+  final NotesProtocol notesProtocol;
+  AppBloc({required this.loginProtocol, required this.notesProtocol})
+      : super(AppState.empty()) {
+    on<LoginAction>((event, emit) async {
+      emit(
+        AppState(
+          handle: null,
+          errors: null,
+          fetchedNotes: null,
+          loading: true,
+        ),
+      );
+      final String email = event.email;
+      final String password = event.password;
+      final loginHandle =
+          await loginProtocol.login(email: email, password: password);
+
+      emit(
+        AppState(
+          handle: loginHandle,
+          errors: loginHandle == null ? Errors.invalidHandle : null,
+          loading: false,
+          fetchedNotes: null,
+        ),
+      );
+    });
+
+    on<NotesAction>((event, emit) async {
+      emit(
+        AppState(
+          handle: state.handle,
+          errors: null,
+          loading: true,
+          fetchedNotes: null,
+        ),
+      );
+      final notes = await notesProtocol.notes(handle: state.handle);
+
+      emit(
+        AppState(
+          handle: state.handle,
+          errors: state.handle == null ? Errors.invalidHandle : null,
+          loading: false,
+          fetchedNotes: notes,
+        ),
+      );
     });
   }
 }
 
-extension Log on Object {
-  void logon() => log(toString());
+class LoginView extends HookWidget {
+  const LoginView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final emailController = useTextEditingController();
+    final passwordController = useTextEditingController();
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('LoginView'),
+      ),
+      body: Column(
+        children: [
+          TextField(
+            controller: emailController,
+            autofocus: true,
+            decoration:
+                const InputDecoration(hintText: 'enter your email here'),
+          ),
+          TextField(
+            controller: passwordController,
+            autofocus: true,
+            decoration:
+                const InputDecoration(hintText: 'enter your password here'),
+          ),
+          TextButton(
+            onPressed: () {
+              final email = emailController.text;
+              final pass = passwordController.text;
+
+              context.read<AppBloc>().add(
+                    LoginAction(email: email, password: pass),
+                  );
+            },
+            child: const Text('submmit'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-extension IsEqualToIgnoringOrdering<T> on Iterable<T> {
-  bool isEqualToIgnoringOrdering(Iterable<T> other) {
-    return length == other.length &&
-        {...this}.intersection({...other}).length == length;
+class NotesView extends StatelessWidget {
+  const NotesView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('NotesView'),
+      ),
+      body: BlocBuilder<AppBloc, AppState>(
+        builder: (context, state) {
+          final notes = state.fetchedNotes;
+
+          return Expanded(
+            child: ListView.builder(
+              itemCount: state.fetchedNotes?.length,
+              itemBuilder: ((context, index) {
+                final note = notes?.elementAt(index);
+                return ListTile(
+                  title: Text(note!.title),
+                );
+              }),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -129,52 +261,24 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('HomePage')),
-      body: BlocBuilder<PersonBloc, FetchResults?>(
+      body: BlocConsumer<AppBloc, AppState>(
+        listener: (context, state) {
+          if (state.loading) {
+            const CircularProgressIndicator();
+          } else if (state.errors == Errors.invalidHandle) {
+            const Text('Error');
+          }
+        },
         builder: (context, state) {
-          final persons = state?.persons;
-
-          return Column(children: [
-            Row(
-              children: [
-                TextButton(
-                    onPressed: () {
-                      context.read<PersonBloc>().add(
-                          PersonLoaderAction(url: person1, loader: getPerson));
-                    },
-                    child: const Text('Load perosn1')),
-                TextButton(
-                    onPressed: () {
-                      context.read<PersonBloc>().add(
-                          PersonLoaderAction(url: person2, loader: getPerson));
-                    },
-                    child: const Text('Load person2'))
-              ],
-            ),
-            BlocBuilder<PersonBloc, FetchResults?>(
-                buildWhen: (previous, current) =>
-                    previous?.persons != current?.persons,
-                builder: (context, state) {
-                  if (state == null) {
-                    return const SizedBox();
-                  }
-
-                  return Expanded(
-                    child: ListView.builder(
-                      itemCount: persons?.length,
-                      itemBuilder: ((context, index) {
-                        final person = persons![index];
-
-                        return ListTile(
-                          title: Text(person!.name),
-                          subtitle: Text(person.age.toString()),
-                        );
-                      }),
-                    ),
-                  );
-                })
-          ]);
+          if (state.fetchedNotes == null) {
+            return const LoginView();
+          } else {
+            return const NotesView();
+          }
         },
       ),
     );
   }
 }
+
+
